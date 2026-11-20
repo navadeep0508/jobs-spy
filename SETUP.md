@@ -10,7 +10,7 @@ A short checkbox version is at the bottom of [PROGRESS.md](PROGRESS.md).
 1. Create a **public** repository on GitHub, e.g. `job-radar`, with no README,
    .gitignore, or license (the repo already has them).
    - Keep it public: GitHub Actions minutes are unlimited for public repos, and a full run
-     every 2 hours (~2,200 min/month) would exceed the 2,000 free minutes of a private
+     every 3 hours would remain below the 2,000 free minutes of a private
      repo. GitHub Pages is also free only for public repos on the Free plan.
    - Nothing secret is committed: tokens live in GitHub Secrets. The job database and
      `jobs.json` only contain public job postings.
@@ -52,7 +52,7 @@ Repository → **Settings** → **Secrets and variables** → **Actions** → **
 
 | Name | Required? | Value |
 |---|---|---|
-| `TELEGRAM_TOKEN` | for alerts | bot token from step 2 |
+| `TELEGRAM_BOT_TOKEN` | for alerts | bot token from step 2 |
 | `TELEGRAM_CHAT_ID` | for alerts | chat ID from step 2 |
 | `ADZUNA_APP_ID` | optional | from step 3 |
 | `ADZUNA_APP_KEY` | optional | from step 3 |
@@ -93,7 +93,7 @@ The website lives in `frontend/` and is deployed by a workflow, not from a branc
 3. **Telegram check:** if you want to confirm the bot works right now, run it locally:
    ```powershell
    cd backend
-   $env:TELEGRAM_TOKEN = "<token>"; $env:TELEGRAM_CHAT_ID = "<chat id>"
+   $env:TELEGRAM_BOT_TOKEN = "<token>"; $env:TELEGRAM_CHAT_ID = "<chat id>"
    python main.py --test-telegram
    ```
 4. **Full run:** Actions → **Job Scraper** → **Run workflow** with *Only these feeds*
@@ -105,7 +105,7 @@ The website lives in `frontend/` and is deployed by a workflow, not from a branc
    - `foundit` is expected to show `SiteBlocked` (bot protection).
 5. **Check the website:** reload your Pages URL. The badge, "Updated … ago", and the
    **Source status** panel at the bottom should reflect the run.
-6. **Leave it running:** the schedule starts automatically (every 2 hours, UTC).
+6. **Leave it running:** the schedule starts automatically (every 3 hours, UTC).
    Check the Actions tab after a few hours to confirm scheduled runs are green.
 
 ## 7. Personalise

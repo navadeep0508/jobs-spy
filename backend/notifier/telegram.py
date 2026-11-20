@@ -1,4 +1,4 @@
-"""Telegram notifier. Needs env vars TELEGRAM_TOKEN and TELEGRAM_CHAT_ID.
+"""Telegram notifier. Needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.
 
 Rules (plan §7): only jobs that are new (notified=0), active, and match MY_SKILLS
 (or everything when MY_SKILLS is empty). Extra guards against spam:
@@ -18,6 +18,8 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from config import settings
+from db.db import get_high_match_jobs, is_job_notified, record_notification
+from db.models import utc_now_iso
 from filters.skill_matcher import skills_filter_active
 
 log = logging.getLogger("notifier.telegram")
@@ -27,11 +29,12 @@ SEND_INTERVAL = 1.1  # seconds; Telegram allows ~1 msg/sec per chat
 
 
 def is_configured() -> bool:
-    return bool(os.environ.get("TELEGRAM_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID"))
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN")
+    return bool(token and os.environ.get("TELEGRAM_CHAT_ID"))
 
 
 def send_message(text: str) -> bool:
-    token = os.environ.get("TELEGRAM_TOKEN", "")
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN", "")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
     payload = {
         "chat_id": chat_id,
@@ -103,7 +106,7 @@ def notify_new_jobs(conn: sqlite3.Connection) -> int:
         log.info("Telegram: no new matching jobs")
         return 0
     if not is_configured():
-        log.warning("Telegram: TELEGRAM_TOKEN / TELEGRAM_CHAT_ID not set — %d alerts not sent "
+        log.warning("Telegram: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set — %d alerts not sent "
                     "(they will be sent on a later run once configured)", len(rows))
         return 0
 
@@ -141,3 +144,81 @@ def send_bootstrap_summary(total: int) -> None:
     if settings.SITE_URL:
         text += f'\n🌐 <a href="{html.escape(settings.SITE_URL, quote=True)}">Open the job board</a>'
     send_message(text)
+
+
+def _row_get(row: sqlite3.Row, key: str, default: str = "") -> str:
+    """Safely read a column from a sqlite3.Row (which has no .get() method)."""
+    try:
+        value = row[key]
+    except (IndexError, KeyError):
+        return default
+    return value or default
+
+
+def _format_scored_job(row: sqlite3.Row) -> str:
+    """Telegram message for a high-match job, including AI score details."""
+    text = format_job(row)
+    score = row["match_score"] if row["match_score"] is not None else 0
+    score_type = row["score_type"] or "?"
+    label = "AI" if score_type == "ai" else "fallback"
+    text += f"\n🤖 {label} score: {score}/100"
+    matched = _row_get(row, "matched_skills")
+    if matched:
+        text += f"\n🛠 Matched skills: {_e(matched)}"
+    missing = _row_get(row, "missing_skills")
+    if missing:
+        text += f"\n❗ Missing: {_e(missing)}"
+    explanation = _row_get(row, "explanation")
+    if explanation:
+        text += f"\n💬 {_e(explanation)}"
+    return text
+
+
+def notify_scored_jobs(conn: sqlite3.Connection, min_score: int) -> int:
+    """Send Telegram alerts for high-match, eligible, not-yet-notified jobs.
+
+    Only jobs with match_score >= min_score, eligible == True, an active status,
+    a valid apply URL and no prior successful notification are alerted. Every
+    delivery attempt is recorded in the notifications table and a job is marked
+    notified only after Telegram confirms successful delivery.
+    """
+    rows = get_high_match_jobs(conn, min_score)
+    rows = [r for r in rows if r["notified"] == 0 and not is_job_notified(conn, r["job_id"])]
+    if not rows:
+        log.info("Telegram: no new high-match jobs (score >= %d)", min_score)
+        return 0
+    if not is_configured():
+        log.warning("Telegram: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set — %d high-match jobs "
+                    "not sent (they will be sent on a later run once configured)", len(rows))
+        return 0
+
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    individual, overflow = rows[: settings.MAX_NOTIFICATIONS_PER_RUN], rows[settings.MAX_NOTIFICATIONS_PER_RUN:]
+    sent_ids = []
+    for row in individual:
+        text = _format_scored_job(row)
+        ok = send_message(text)
+        if ok:
+            sent_ids.append(row["job_id"])
+            record_notification(conn, row["job_id"], chat_id, "sent")
+        else:
+            record_notification(conn, row["job_id"], chat_id, "failed",
+                                error_message="Telegram sendMessage returned failure")
+        time.sleep(SEND_INTERVAL)
+
+    if overflow:
+        text = f"➕ <b>{len(overflow)} more</b> high-match jobs (score >= {min_score}) this run."
+        if settings.SITE_URL:
+            text += f'\n🌐 <a href="{html.escape(settings.SITE_URL, quote=True)}">See them all on the website</a>'
+        if send_message(text):
+            sent_ids.extend(r["job_id"] for r in overflow)
+            for r in overflow:
+                record_notification(conn, r["job_id"], chat_id, "sent")
+
+    # Mark notified only for jobs whose message was sent successfully.
+    with conn:
+        conn.executemany("UPDATE jobs SET notified = 1 WHERE job_id = ?",
+                         [(j,) for j in sent_ids])
+    log.info("Telegram: sent %d individual alerts, %d in summary (score >= %d)",
+             min(len(sent_ids), len(individual)), len(overflow), min_score)
+    return len(sent_ids)

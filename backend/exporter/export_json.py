@@ -53,7 +53,7 @@ def _job_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         """
         SELECT job_id, title, company, location, job_type, skills_tags, salary,
                posted_date, deadline, apply_link, source, status, scraped_at,
-               last_seen_at, description
+               last_seen_at, description, match_score, score_type
         FROM jobs
         WHERE status = 'active'
         ORDER BY COALESCE(posted_date, scraped_at) DESC, job_id
@@ -79,7 +79,36 @@ def _job_dict(r: sqlite3.Row) -> dict:
         "last_seen": (r["last_seen_at"] or "")[:10] if r["status"] != "active" else None,
         "snippet": truncate(r["description"] or "", settings.EXPORT_SNIPPET_CHARS),
     }
+    # Only include AI/fallback score when the job has actually been scored.
+    if r["match_score"] and r["match_score"] > 0:
+        job["match_score"] = r["match_score"]
+    if r["score_type"]:
+        job["score_type"] = r["score_type"]
     return {k: v for k, v in job.items() if v not in (None, "", [])}
+
+
+def _score_distribution(conn: sqlite3.Connection) -> dict:
+    """Count scored jobs by score band (for the frontend score distribution)."""
+    rows = conn.execute(
+        """
+        SELECT
+            CASE
+                WHEN match_score >= 90 THEN '90-100'
+                WHEN match_score >= 80 THEN '80-89'
+                WHEN match_score >= 60 THEN '60-79'
+                WHEN match_score >= 40 THEN '40-59'
+                ELSE '0-39'
+            END AS band,
+            COUNT(*) AS cnt
+        FROM job_scores
+        GROUP BY band
+        """,
+    ).fetchall()
+    dist = {r["band"]: r["cnt"] for r in rows}
+    # Ensure all bands are present.
+    for band in ("90-100", "80-89", "60-79", "40-59", "0-39"):
+        dist.setdefault(band, 0)
+    return dist
 
 
 def _source_health(conn: sqlite3.Connection) -> list[dict]:
@@ -123,6 +152,7 @@ def export(conn: sqlite3.Connection, path: Path = OUTPUT_PATH) -> dict:
     header = {
         "generated_at": utc_now_iso(),
         "counts": counts,
+        "score_distribution": _score_distribution(conn),
         "my_skills": [s.lower() for s in MY_SKILLS],
         "all_skills": sorted({s for j in jobs for s in j.get("skills", [])}),
         "sources": _source_health(conn),

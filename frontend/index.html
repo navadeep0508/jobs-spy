@@ -35,6 +35,12 @@
           <button type="button" data-window="48">New · 48h</button>
           <button type="button" data-window="all">All</button>
         </div>
+
+        <div class="score-dist" id="score-dist" hidden>
+          <span class="score-dist-label">AI match scores:</span>
+          <div class="score-bars" id="score-bars"></div>
+        </div>
+
         <button type="button" class="filters-toggle" id="filters-toggle" aria-expanded="false" aria-controls="filters">
           Filters <span class="filters-count" id="filters-count" hidden></span>
         </button>
@@ -113,6 +119,7 @@
         <li class="meta-salary"></li>
       </ul>
       <div class="pills"></div>
+      <span class="score-pill" hidden></span>
       <p class="snippet"></p>
       <div class="card-foot">
         <div class="dates">

@@ -1,5 +1,5 @@
 # Publishes frontend/ to GitHub Pages.
-# Runs after every scrape (called from scrape.yml), when website files change, or manually.
+# Runs when website files change or manually.
 # One-time setup: Settings → Pages → Build and deployment → Source: "GitHub Actions".
 name: Deploy website
 

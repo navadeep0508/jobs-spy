@@ -13,6 +13,7 @@
     typeChips: $("type-chips"), grid: $("grid"), empty: $("empty"), sentinel: $("sentinel"),
     resultLine: $("result-line"), healthBody: $("health-body"), filters: $("filters"),
     filtersToggle: $("filters-toggle"), filtersCount: $("filters-count"),
+    scoreDist: $("score-dist"), scoreBars: $("score-bars"),
     template: $("card-template"),
   };
 
@@ -120,6 +121,7 @@
     });
     buildControls();
     renderHealth();
+    renderScoreDistribution();
     const gen = Date.parse(data.generated_at);
     const showUpdated = () => { el.updated.textContent = gen ? `Updated ${relTime(gen)} · refreshes every 2 hours` : ""; };
     showUpdated();
@@ -300,6 +302,39 @@
     return s;
   }
 
+  function scoreBand(score) {
+    if (score >= 80) return "high";
+    if (score >= 60) return "mid";
+    return "low";
+  }
+
+  function renderScoreDistribution() {
+    const dist = data.score_distribution;
+    if (!dist) { el.scoreDist.hidden = true; return; }
+    const total = Object.values(dist).reduce((a, b) => a + b, 0);
+    if (!total) { el.scoreDist.hidden = true; return; }
+    el.scoreDist.hidden = false;
+    const bands = [
+      { key: "90-100", label: "90–100", cls: "high" },
+      { key: "80-89", label: "80–89", cls: "high" },
+      { key: "60-79", label: "60–79", cls: "mid" },
+      { key: "40-59", label: "40–59", cls: "low" },
+      { key: "0-39", label: "0–39", cls: "low" },
+    ];
+    el.scoreBars.replaceChildren(
+      ...bands.map((b) => {
+        const cnt = dist[b.key] || 0;
+        const pct = total ? Math.round((cnt / total) * 1000) / 10 : 0;
+        const seg = document.createElement("div");
+        seg.className = `score-segment score-${b.cls}`;
+        seg.style.width = `${pct}%`;
+        seg.title = `${b.label}: ${cnt}`;
+        if (cnt) seg.textContent = String(cnt);
+        return seg;
+      })
+    );
+  }
+
   function card(j) {
     const node = el.template.content.firstElementChild.cloneNode(true);
     const q = (sel) => node.querySelector(sel);
@@ -312,6 +347,13 @@
     const pills = q(".pills");
     j.skills.forEach((s) => pills.append(pill(s, "skill")));
     j.job_type.forEach((t) => pills.append(pill(t, `type-${t}`)));
+    if (j.match_score) {
+      const scorePill = q(".score-pill");
+      const label = j.score_type === "ai" ? "AI" : "fallback";
+      scorePill.textContent = `${label}: ${j.match_score}`;
+      scorePill.className = `score-pill score-${scoreBand(j.match_score)}`;
+      scorePill.hidden = false;
+    }
 
     const posted = q(".posted");
     if (j._posted) {

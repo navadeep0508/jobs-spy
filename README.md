@@ -1,6 +1,6 @@
 # Job Radar — free, self-running job aggregator + Telegram alerts
 
-Scrapes jobs from ~70 free sources every 2 hours, tags them with your skills, sends
+Scrapes jobs from ~70 free sources every 3 hours, tags them with your skills, sends
 Telegram alerts for new matches, flags expired postings, and publishes everything
 to a filterable website. It runs entirely on GitHub Actions + GitHub Pages at zero cost.
 
@@ -9,7 +9,7 @@ to a filterable website. It runs entirely on GitHub Actions + GitHub Pages at ze
   decision, current status, known limitations, and the **manual setup checklist**)
 
 ```
-GitHub Actions (every 2h) ──► backend/main.py
+GitHub Actions (every 3h) ──► backend/main.py
    scrape 69 feeds (APIs · ATS company boards · RSS · India job sites)
    → normalize → tag skills → dedupe into SQLite (backend/db/jobs.db)
    → expire (deadline / disappeared / stale) → Telegram alerts
@@ -43,7 +43,7 @@ backend/                     Python 3.10+ pipeline (run everything from this fol
 frontend/                    static website (no build step)
   index.html, style.css, app.js, jobs.json (generated)
 .github/workflows/
-  scrape.yml                 every 2 hours: run pipeline, commit data, deploy site
+  kismat-scheduled.yml       every 3 hours: run pipeline and upload SQLite backup
   pages.yml                  deploy frontend/ to GitHub Pages
 ```
 \* Naukri and Foundit use a headless browser and may be blocked by those sites' bot
@@ -66,6 +66,11 @@ python main.py --test-telegram               # check your bot setup
 Secrets are read from environment variables. For local runs you can copy
 `.env.example` to `.env` (git-ignored) and fill it in.
 
+For GitHub Actions setup, required secrets, three-hour scheduling, and SQLite
+artifact backup/restore, see [DEPLOY_GITHUB_ACTIONS.md](DEPLOY_GITHUB_ACTIONS.md).
+The workflow uses `data/jobs.db` on ephemeral runners; artifacts are temporary
+and do not replace permanent storage.
+
 Preview the website: `cd frontend && python -m http.server 8000` → open
 <http://localhost:8000>. Opening `index.html` directly from disk doesn't work, because the
 browser blocks loading `jobs.json` from a file.
@@ -79,7 +84,7 @@ browser blocks loading `jobs.json` from a file.
 | change search keywords (Adzuna, Jooble, Shine, Naukri, Foundit) | `backend/config/settings.py` (`SEARCH_QUERIES`, `INDIA_QUERIES`) |
 | change Internshala / Freshersworld categories | top of `backend/scrapers/india_boards.py` |
 | change alert limits, expiry timing, export size | `backend/config/settings.py` |
-| change the schedule | `cron` in `.github/workflows/scrape.yml` (keep `SCRAPE_INTERVAL_HOURS` in sync) |
+| change the schedule | `cron` in `.github/workflows/kismat-scheduled.yml` (keep `SCRAPE_INTERVAL_HOURS=3`) |
 | add a new JSON API source | add an `ApiPuller` in `backend/scrapers/apis.py` and list it in `feeds()` |
 
 Push the change. The next scheduled run picks it up, or start a run yourself from the
